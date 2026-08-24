@@ -32,16 +32,44 @@ function formatoMoneda(valor) {
   return '$' + Number(valor).toLocaleString('es-CO', { minimumFractionDigits: 0 });
 }
 
-/** Arma el ticket ESC/POS a partir del payload que envía el pos-frontend. */
-function construirTicket(printer, payload) {
-  const { negocio, venta } = payload;
+/**
+ * Arma el ticket ESC/POS a partir del payload que envía pos-frontend (el
+ * mismo `ReciboContenido` que devuelve `GET /ventas/:id/comprobante`, más
+ * `cambio`/`logoBase64` que solo existen en el momento de imprimir).
+ *
+ * Deliberadamente NO hay un branch separado por `tipo` que reconstruya el
+ * ticket dos veces — todos los campos nuevos (logo, emisor, mensajeCierre,
+ * terminos, dian) son opcionales y solo agregan líneas si vienen presentes.
+ * Así, una sucursal sin ninguna plantilla configurada (`ComprobantesService`
+ * devuelve el contenido sintético de siempre) imprime EXACTAMENTE igual que
+ * antes de esta feature — la compatibilidad no depende de un `if` acá, sino
+ * de que el backend nunca mande esos campos cuando no hay nada configurado.
+ */
+async function construirTicket(printer, payload) {
+  const { negocio, venta, tipo } = payload;
+
+  if (negocio?.logoBase64) {
+    try {
+      const buffer = Buffer.from(negocio.logoBase64, 'base64');
+      await printer.printImageBuffer(buffer);
+    } catch (err) {
+      // El logo es un extra — si el archivo no es un PNG válido o falla la decodificación,
+      // se imprime el resto del ticket igual en vez de perder toda la venta.
+      console.error('No se pudo imprimir el logo del comprobante:', err.message);
+    }
+  }
 
   printer.alignCenter();
   printer.bold(true);
+  if (tipo === 'FACTURA') {
+    printer.println('FACTURA DE VENTA');
+  }
   printer.println(negocio?.nombre || 'Mi Tienda');
   printer.bold(false);
   if (negocio?.nit) printer.println(`NIT: ${negocio.nit}`);
-  if (negocio?.direccion) printer.println(negocio.direccion);
+  if (venta.emisor?.nombrePersonaNatural) printer.println(venta.emisor.nombrePersonaNatural);
+  if (venta.emisor?.direccion) printer.println(venta.emisor.direccion);
+  if (venta.emisor?.telefono) printer.println(`Tel: ${venta.emisor.telefono}`);
   printer.drawLine();
 
   printer.alignLeft();
@@ -59,6 +87,7 @@ function construirTicket(printer, payload) {
 
   printer.alignRight();
   printer.println(`Subtotal: ${formatoMoneda(venta.subtotal)}`);
+  if (venta.descuento) printer.println(`Descuento: -${formatoMoneda(venta.descuento)}`);
   if (venta.impuesto) printer.println(`Impuesto: ${formatoMoneda(venta.impuesto)}`);
   printer.bold(true);
   printer.println(`TOTAL: ${formatoMoneda(venta.total)}`);
@@ -73,7 +102,25 @@ function construirTicket(printer, payload) {
 
   printer.alignCenter();
   printer.drawLine();
-  printer.println('¡Gracias por su compra!');
+  printer.println(venta.mensajeCierre || '¡Gracias por su compra!');
+  if (venta.terminos) {
+    printer.println(venta.terminos);
+  }
+
+  if (tipo === 'FACTURA' && venta.dian) {
+    printer.drawLine();
+    const d = venta.dian;
+    if (d.resolucionNumero) printer.println(`Resolución DIAN No. ${d.resolucionNumero}`);
+    if (d.prefijo || d.rangoDesde || d.rangoHasta) {
+      printer.println(`Numeración: ${d.prefijo || ''}${d.rangoDesde ?? ''} - ${d.prefijo || ''}${d.rangoHasta ?? ''}`);
+    }
+    if (d.fechaVigencia) printer.println(`Vigente hasta: ${d.fechaVigencia}`);
+    if (d.regimenFiscal) printer.println(`Régimen: ${d.regimenFiscal}`);
+    for (const campo of d.camposExtra || []) {
+      printer.println(`${campo.etiqueta}: ${campo.valor}`);
+    }
+  }
+
   printer.cut();
 }
 
@@ -88,7 +135,7 @@ async function imprimirTicket(payload) {
 
   try {
     const printer = await crearImpresora();
-    construirTicket(printer, payload);
+    await construirTicket(printer, payload);
     if (payload.abrirCajon) {
       printer.openCashDrawer();
     }
