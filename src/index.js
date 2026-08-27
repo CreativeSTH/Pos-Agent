@@ -58,7 +58,8 @@ app.use((err, _req, res, _next) => {
 });
 
 const PORT = process.env.PORT || 9100;
-app.listen(PORT, () => {
+// Solo localhost: nada en la red del negocio debe poder pegarle a este puerto, solo el navegador de esta misma PC.
+app.listen(PORT, '127.0.0.1', () => {
   console.log(`pos-agent escuchando en http://localhost:${PORT}`);
   console.log('Este servicio debe correr en la PC de la caja, junto a la impresora.');
 });
