@@ -44,11 +44,14 @@ app.get('/config', (_req, res) => {
 });
 
 app.post('/config', (req, res) => {
-  const { printerType, printerName } = req.body || {};
+  const { printerType, printerName, paperWidth } = req.body || {};
   if (printerType && !['epson', 'star'].includes(String(printerType).toLowerCase())) {
     return res.status(400).json({ error: 'printerType debe ser "epson" o "star"' });
   }
-  res.json(guardarConfig({ printerType, printerName }));
+  if (paperWidth !== undefined && ![58, 80].includes(Number(paperWidth))) {
+    return res.status(400).json({ error: 'paperWidth debe ser 58 u 80' });
+  }
+  res.json(guardarConfig({ printerType, printerName, paperWidth: paperWidth !== undefined ? Number(paperWidth) : undefined }));
 });
 
 // Red de seguridad: nunca devolver la página HTML de error por defecto de Express.
