@@ -79,3 +79,44 @@ test('factura electrónica sin CUFE ni QR: no imprime el bloque CUFE ni imagen',
   assert.ok(!lineas.includes('CUFE:'));
   assert.strictEqual(imagenes.length, 0);
 });
+
+test('recibo de caja: título, número, venta abonada, cuota, mora, saldos y leyenda', async () => {
+  const { printer, lineas } = impresoraFalsa();
+  await construirTicket(printer, {
+    tipo: 'RECIBO_CAJA', negocio: { nombre: 'Ferretería' },
+    venta: {
+      numero: 'RC-7', fecha: '2026-09-29T15:00:00Z', cliente: 'Ana Gómez',
+      items: [{ nombre: 'Abono cuota 1 de 3', cantidad: 1, subtotal: 45000 }],
+      subtotal: 45000, total: 45000, pagos: [{ metodo: 'Nequi', monto: 45000 }],
+      mensajeCierre: '¡Gracias por su pago!',
+      leyenda: 'Recibo de caja: soporte de pago. No es una factura de venta.',
+      abono: {
+        numeroCuota: 1, totalCuotas: 3, comprobanteVenta: 'FE17', tipoComprobanteVenta: 'Factura electrónica',
+        moraPagada: 5000, saldoAnterior: 200000, saldoNuevo: 160000, referenciaPago: 'NQ-99',
+      },
+    },
+  });
+  for (const esperado of [
+    'RECIBO DE CAJA', 'Recibo de caja: RC-7', 'Cliente: Ana Gómez', 'Abono a: Factura electrónica FE17',
+    'Cuota 1 de 3', 'Ref. pago: NQ-99', '¡Gracias por su pago!', 'Recibo de caja: soporte de pago. No es una factura de venta.',
+  ]) {
+    assert.ok(lineas.includes(esperado), `falta la línea "${esperado}"`);
+  }
+  assert.ok(lineas.some((l) => l.startsWith('Intereses de mora:')), 'falta la mora pagada');
+  assert.ok(lineas.some((l) => l.startsWith('Saldo anterior:')), 'falta el saldo anterior');
+  assert.ok(lineas.some((l) => l.startsWith('Saldo pendiente:')), 'falta el saldo pendiente');
+  assert.ok(!lineas.some((l) => l.startsWith('Venta:')), 'un recibo de caja no dice "Venta:"');
+});
+
+test('recibo de caja histórico sin saldos: no imprime líneas de saldo ni de mora en cero', async () => {
+  const { printer, lineas } = impresoraFalsa();
+  await construirTicket(printer, {
+    tipo: 'RECIBO_CAJA', negocio: { nombre: 'Ferretería' },
+    venta: {
+      numero: 'Sin numerar', fecha: '2026-09-29T15:00:00Z', cliente: 'Ana Gómez', items: [], subtotal: 1000, total: 1000, pagos: [],
+      abono: { numeroCuota: 1, totalCuotas: 1, comprobanteVenta: 'R-15', tipoComprobanteVenta: 'Recibo', moraPagada: 0, saldoAnterior: null, saldoNuevo: null, referenciaPago: null },
+    },
+  });
+  assert.ok(!lineas.some((l) => l.startsWith('Saldo')));
+  assert.ok(!lineas.some((l) => l.startsWith('Intereses de mora')));
+});

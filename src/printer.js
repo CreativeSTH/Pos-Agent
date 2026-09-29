@@ -67,7 +67,8 @@ function formatoMoneda(valor) {
  * de que el backend nunca mande esos campos cuando no hay nada configurado.
  * La factura electrónica (`tipo: 'FACTURA_ELECTRONICA'` + `venta.electronica`) sí suma su
  * bloque fiscal (encabezado de estado, adquirente, resolución, CUFE, QR); un payload viejo sin
- * esos campos imprime exactamente igual que antes.
+ * esos campos imprime exactamente igual que antes. El recibo de caja (`tipo: 'RECIBO_CAJA'` +
+ * `venta.abono`) suma título, venta abonada, cuota y saldos.
  */
 async function construirTicket(printer, payload) {
   const { negocio, venta, tipo } = payload;
@@ -86,6 +87,8 @@ async function construirTicket(printer, payload) {
   // Factura electrónica (spec de unificación de comprobantes, sección 5): todo lo fiscal viene
   // resuelto por el backend desde el snapshot del documento — acá solo se imprime.
   const e = tipo === 'FACTURA_ELECTRONICA' ? venta.electronica : null;
+  // Recibo de caja de un abono a crédito (fase 4): soporte de pago, no documento de venta.
+  const a = tipo === 'RECIBO_CAJA' ? venta.abono : null;
 
   printer.alignCenter();
   if (e?.encabezado) {
@@ -97,6 +100,7 @@ async function construirTicket(printer, payload) {
   printer.bold(true);
   if (tipo === 'FACTURA') printer.println('FACTURA DE VENTA');
   if (e) printer.println('FACTURA ELECTRÓNICA DE VENTA');
+  if (a) printer.println('RECIBO DE CAJA');
   printer.println(e?.emisor?.razonSocial || negocio?.nombre || 'Mi Tienda');
   printer.bold(false);
   const nit = e?.emisor?.nitConDv || negocio?.nit;
@@ -108,12 +112,18 @@ async function construirTicket(printer, payload) {
   printer.drawLine();
 
   printer.alignLeft();
-  printer.println(`${e ? 'Factura' : 'Venta'}: ${venta.numero || venta.id || ''}`);
+  const etiquetaNumero = e ? 'Factura' : a ? 'Recibo de caja' : 'Venta';
+  printer.println(`${etiquetaNumero}: ${venta.numero || venta.id || ''}`);
   printer.println(`Fecha: ${new Date(e?.fechaEmision || venta.fecha || Date.now()).toLocaleString('es-CO')}`);
   if (e) {
     printer.println(`Cliente: ${e.adquirente.nombre}`);
     printer.println(e.adquirente.identificacion);
     printer.println(`Forma de pago: ${e.formaPago}`);
+  }
+  if (a) {
+    printer.println(`Cliente: ${venta.cliente}`);
+    printer.println(`Abono a: ${a.tipoComprobanteVenta} ${a.comprobanteVenta}`);
+    printer.println(`Cuota ${a.numeroCuota} de ${a.totalCuotas}`);
   }
   printer.drawLine();
 
@@ -135,6 +145,12 @@ async function construirTicket(printer, payload) {
 
   for (const pago of venta.pagos || []) {
     printer.println(`${pago.metodo}: ${formatoMoneda(pago.monto)}`);
+  }
+  if (a) {
+    if (a.moraPagada > 0) printer.println(`Intereses de mora: ${formatoMoneda(a.moraPagada)}`);
+    if (a.referenciaPago) printer.println(`Ref. pago: ${a.referenciaPago}`);
+    if (a.saldoAnterior != null) printer.println(`Saldo anterior: ${formatoMoneda(a.saldoAnterior)}`);
+    if (a.saldoNuevo != null) printer.println(`Saldo pendiente: ${formatoMoneda(a.saldoNuevo)}`);
   }
   if (venta.cambio) {
     printer.println(`Cambio: ${formatoMoneda(venta.cambio)}`);
