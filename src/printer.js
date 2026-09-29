@@ -65,6 +65,9 @@ function formatoMoneda(valor) {
  * devuelve el contenido sintético de siempre) imprime EXACTAMENTE igual que
  * antes de esta feature — la compatibilidad no depende de un `if` acá, sino
  * de que el backend nunca mande esos campos cuando no hay nada configurado.
+ * La factura electrónica (`tipo: 'FACTURA_ELECTRONICA'` + `venta.electronica`) sí suma su
+ * bloque fiscal (encabezado de estado, adquirente, resolución, CUFE, QR); un payload viejo sin
+ * esos campos imprime exactamente igual que antes.
  */
 async function construirTicket(printer, payload) {
   const { negocio, venta, tipo } = payload;
@@ -80,22 +83,38 @@ async function construirTicket(printer, payload) {
     }
   }
 
+  // Factura electrónica (spec de unificación de comprobantes, sección 5): todo lo fiscal viene
+  // resuelto por el backend desde el snapshot del documento — acá solo se imprime.
+  const e = tipo === 'FACTURA_ELECTRONICA' ? venta.electronica : null;
+
   printer.alignCenter();
-  printer.bold(true);
-  if (tipo === 'FACTURA') {
-    printer.println('FACTURA DE VENTA');
+  if (e?.encabezado) {
+    printer.bold(true);
+    printer.println(e.encabezado);
+    printer.bold(false);
+    printer.drawLine();
   }
-  printer.println(negocio?.nombre || 'Mi Tienda');
+  printer.bold(true);
+  if (tipo === 'FACTURA') printer.println('FACTURA DE VENTA');
+  if (e) printer.println('FACTURA ELECTRÓNICA DE VENTA');
+  printer.println(e?.emisor?.razonSocial || negocio?.nombre || 'Mi Tienda');
   printer.bold(false);
-  if (negocio?.nit) printer.println(`NIT: ${negocio.nit}`);
+  const nit = e?.emisor?.nitConDv || negocio?.nit;
+  if (nit) printer.println(`NIT: ${nit}`);
   if (venta.emisor?.nombrePersonaNatural) printer.println(venta.emisor.nombrePersonaNatural);
-  if (venta.emisor?.direccion) printer.println(venta.emisor.direccion);
+  const direccion = e?.emisor?.direccion || venta.emisor?.direccion;
+  if (direccion) printer.println(direccion);
   if (venta.emisor?.telefono) printer.println(`Tel: ${venta.emisor.telefono}`);
   printer.drawLine();
 
   printer.alignLeft();
-  printer.println(`Venta: ${venta.numero || venta.id || ''}`);
-  printer.println(`Fecha: ${new Date(venta.fecha || Date.now()).toLocaleString('es-CO')}`);
+  printer.println(`${e ? 'Factura' : 'Venta'}: ${venta.numero || venta.id || ''}`);
+  printer.println(`Fecha: ${new Date(e?.fechaEmision || venta.fecha || Date.now()).toLocaleString('es-CO')}`);
+  if (e) {
+    printer.println(`Cliente: ${e.adquirente.nombre}`);
+    printer.println(e.adquirente.identificacion);
+    printer.println(`Forma de pago: ${e.formaPago}`);
+  }
   printer.drawLine();
 
   for (const item of venta.items || []) {
@@ -140,6 +159,28 @@ async function construirTicket(printer, payload) {
     for (const campo of d.camposExtra || []) {
       printer.println(`${campo.etiqueta}: ${campo.valor}`);
     }
+  }
+
+  if (e) {
+    printer.drawLine();
+    if (e.resolucion) printer.println(e.resolucion);
+    if (e.cufe) {
+      printer.println('CUFE:');
+      printer.println(e.cufe);
+    }
+    if (e.qrBase64) {
+      try {
+        await printer.printImageBuffer(Buffer.from(e.qrBase64, 'base64'));
+      } catch (err) {
+        // Mismo criterio que el logo: sin QR se imprime el resto (el CUFE permite consultarla igual).
+        console.error('No se pudo imprimir el QR de la factura:', err.message);
+      }
+    }
+    printer.println(e.proveedorTecnologico);
+  }
+  if (venta.leyenda) {
+    printer.drawLine();
+    printer.println(venta.leyenda);
   }
 
   printer.cut();
@@ -210,4 +251,4 @@ async function imprimirPrueba() {
   }
 }
 
-module.exports = { imprimirTicket, imprimirPrueba };
+module.exports = { imprimirTicket, imprimirPrueba, construirTicket };
