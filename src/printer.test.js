@@ -120,3 +120,40 @@ test('recibo de caja histórico sin saldos: no imprime líneas de saldo ni de mo
   assert.ok(!lineas.some((l) => l.startsWith('Saldo')));
   assert.ok(!lineas.some((l) => l.startsWith('Intereses de mora')));
 });
+
+test('factura de contingencia: título de papel, CUDE y fabricante del software', async () => {
+  const { printer, lineas } = impresoraFalsa();
+  await construirTicket(printer, {
+    tipo: 'FACTURA_ELECTRONICA', negocio: { nombre: 'Ferretería' },
+    venta: {
+      ...ventaBase, numero: 'CONT501',
+      electronica: {
+        contingencia: true, titulo: 'FACTURA DE VENTA DE TALONARIO O DE PAPEL', etiquetaCodigo: 'CUDE',
+        encabezado: null, cufe: 'abc123', resolucion: 'Numeración autorizada por la DIAN — Resolución No. 18764000009999',
+        emisor: { razonSocial: 'Tienda S.A.S.', nitConDv: '900123456-8', direccion: 'Cra 1' },
+        adquirente: { nombre: 'Consumidor final', identificacion: 'CC 222222222222' }, formaPago: 'Contado',
+        proveedorTecnologico: 'Proveedor tecnológico: Alegra (NIT 900559088)',
+        fabricanteSoftware: 'Software: AURA — fabricante Sebastian Torres (NIT 1047444002-2)',
+      },
+    },
+  });
+  assert.ok(lineas.includes('FACTURA DE VENTA DE TALONARIO O DE PAPEL'));
+  assert.ok(!lineas.includes('FACTURA ELECTRÓNICA DE VENTA'));
+  assert.ok(lineas.includes('NIT: 900123456-8'));
+  assert.ok(lineas.includes('CUDE:'));
+  assert.ok(!lineas.includes('CUFE:'));
+  assert.ok(lineas.includes('Software: AURA — fabricante Sebastian Torres (NIT 1047444002-2)'));
+});
+
+test('payload viejo sin `titulo` sigue imprimiendo el título de factura electrónica y CUFE', async () => {
+  const { printer, lineas } = impresoraFalsa();
+  await construirTicket(printer, {
+    tipo: 'FACTURA_ELECTRONICA', negocio: { nombre: 'Ferretería' },
+    venta: {
+      ...ventaBase,
+      electronica: { encabezado: null, cufe: 'x', adquirente: { nombre: 'A', identificacion: 'CC 1' }, formaPago: 'Contado', proveedorTecnologico: 'P' },
+    },
+  });
+  assert.ok(lineas.includes('FACTURA ELECTRÓNICA DE VENTA'));
+  assert.ok(lineas.includes('CUFE:'));
+});

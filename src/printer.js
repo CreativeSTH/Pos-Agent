@@ -67,7 +67,8 @@ function formatoMoneda(valor) {
  * de que el backend nunca mande esos campos cuando no hay nada configurado.
  * La factura electrónica (`tipo: 'FACTURA_ELECTRONICA'` + `venta.electronica`) sí suma su
  * bloque fiscal (encabezado de estado, adquirente, resolución, CUFE, QR); un payload viejo sin
- * esos campos imprime exactamente igual que antes. El recibo de caja (`tipo: 'RECIBO_CAJA'` +
+ * esos campos imprime exactamente igual que antes. La factura de contingencia (fase 6a) usa el mismo
+ * bloque con `titulo`, `etiquetaCodigo` (CUDE) y `fabricanteSoftware`. El recibo de caja (`tipo: 'RECIBO_CAJA'` +
  * `venta.abono`) suma título, venta abonada, cuota y saldos.
  */
 async function construirTicket(printer, payload) {
@@ -99,7 +100,8 @@ async function construirTicket(printer, payload) {
   }
   printer.bold(true);
   if (tipo === 'FACTURA') printer.println('FACTURA DE VENTA');
-  if (e) printer.println('FACTURA ELECTRÓNICA DE VENTA');
+  // Fase 6a: la factura de contingencia manda su propio título ("FACTURA DE VENTA DE TALONARIO O DE PAPEL").
+  if (e) printer.println(e.titulo || 'FACTURA ELECTRÓNICA DE VENTA');
   if (a) printer.println('RECIBO DE CAJA');
   printer.println(e?.emisor?.razonSocial || negocio?.nombre || 'Mi Tienda');
   printer.bold(false);
@@ -181,7 +183,7 @@ async function construirTicket(printer, payload) {
     printer.drawLine();
     if (e.resolucion) printer.println(e.resolucion);
     if (e.cufe) {
-      printer.println('CUFE:');
+      printer.println(`${e.etiquetaCodigo || 'CUFE'}:`);
       printer.println(e.cufe);
     }
     if (e.qrBase64) {
@@ -193,6 +195,7 @@ async function construirTicket(printer, payload) {
       }
     }
     printer.println(e.proveedorTecnologico);
+    if (e.fabricanteSoftware) printer.println(e.fabricanteSoftware);
   }
   if (venta.leyenda) {
     printer.drawLine();
