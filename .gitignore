@@ -2,3 +2,5 @@ node_modules/
 .env
 *.log
 config.json
+# Fase 6b: foto del POS y cola de ventas sin conexión de esta caja
+data/

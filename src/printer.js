@@ -193,6 +193,13 @@ async function construirTicket(printer, payload) {
         // Mismo criterio que el logo: sin QR se imprime el resto (el CUFE permite consultarla igual).
         console.error('No se pudo imprimir el QR de la factura:', err.message);
       }
+    } else if (e.qrTexto) {
+      // Fase 6b: sin conexión no hay imagen del QR (la genera el backend); la impresora lo dibuja.
+      try {
+        printer.printQR(e.qrTexto, { cellSize: 6, correction: 'M' });
+      } catch (err) {
+        console.error('No se pudo imprimir el QR de la factura:', err.message);
+      }
     }
     printer.println(e.proveedorTecnologico);
     if (e.fabricanteSoftware) printer.println(e.fabricanteSoftware);

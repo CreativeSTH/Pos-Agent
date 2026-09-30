@@ -6,17 +6,19 @@ const { construirTicket } = require('./printer');
 function impresoraFalsa() {
   const lineas = [];
   const imagenes = [];
+  const qrs = [];
   const printer = new Proxy(
     {},
     {
       get: (_, metodo) => {
         if (metodo === 'println') return (texto) => lineas.push(String(texto));
         if (metodo === 'printImageBuffer') return async (buffer) => imagenes.push(buffer);
+        if (metodo === 'printQR') return (texto) => qrs.push(String(texto));
         return () => {};
       },
     },
   );
-  return { printer, lineas, imagenes };
+  return { printer, lineas, imagenes, qrs };
 }
 
 const ventaBase = {
@@ -156,4 +158,21 @@ test('payload viejo sin `titulo` sigue imprimiendo el título de factura electr�
   });
   assert.ok(lineas.includes('FACTURA ELECTRÓNICA DE VENTA'));
   assert.ok(lineas.includes('CUFE:'));
+});
+
+test('sin conexión: imprime el QR desde texto si no viene imagen', async () => {
+  const { printer, qrs, imagenes } = impresoraFalsa();
+  await construirTicket(printer, {
+    tipo: 'FACTURA_ELECTRONICA', negocio: { nombre: 'Ferretería' },
+    venta: {
+      ...ventaBase,
+      electronica: {
+        contingencia: true, titulo: 'FACTURA DE VENTA DE TALONARIO O DE PAPEL', etiquetaCodigo: 'CUDE', encabezado: null,
+        adquirente: { nombre: 'Consumidor final', identificacion: 'CC 222222222222' }, formaPago: 'Contado',
+        proveedorTecnologico: 'P', qrTexto: 'NumFac: CONT7',
+      },
+    },
+  });
+  assert.deepStrictEqual(qrs, ['NumFac: CONT7']);
+  assert.strictEqual(imagenes.length, 0);
 });

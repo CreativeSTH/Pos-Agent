@@ -1,6 +1,6 @@
 {
   "name": "pos-agent",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Agente local: puente entre el pos-frontend y la impresora térmica/cajón monedero de la PC de caja.",
   "main": "src/index.js",
   "scripts": {
