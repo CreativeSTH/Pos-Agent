@@ -69,7 +69,9 @@ function formatoMoneda(valor) {
  * bloque fiscal (encabezado de estado, adquirente, resolución, CUFE, QR); un payload viejo sin
  * esos campos imprime exactamente igual que antes. La factura de contingencia (fase 6a) usa el mismo
  * bloque con `titulo`, `etiquetaCodigo` (CUDE) y `fabricanteSoftware`. El recibo de caja (`tipo: 'RECIBO_CAJA'` +
- * `venta.abono`) suma título, venta abonada, cuota y saldos.
+ * `venta.abono`) suma título, venta abonada, cuota y saldos. La devolución (`tipo: 'DEVOLUCION'` +
+ * `venta.devolucion`, desde 1.5.0) suma título, venta afectada, motivo y, si la venta tenía factura
+ * electrónica, el número y CUDE de la nota crédito.
  */
 async function construirTicket(printer, payload) {
   const { negocio, venta, tipo } = payload;
@@ -90,11 +92,14 @@ async function construirTicket(printer, payload) {
   const e = tipo === 'FACTURA_ELECTRONICA' ? venta.electronica : null;
   // Recibo de caja de un abono a crédito (fase 4): soporte de pago, no documento de venta.
   const a = tipo === 'RECIBO_CAJA' ? venta.abono : null;
+  // Devolución: comprobante interno DEV-n y, si la venta tenía factura electrónica, su nota crédito.
+  const dv = tipo === 'DEVOLUCION' ? venta.devolucion : null;
+  const encabezadoEstado = e?.encabezado || dv?.notaCredito?.encabezado;
 
   printer.alignCenter();
-  if (e?.encabezado) {
+  if (encabezadoEstado) {
     printer.bold(true);
-    printer.println(e.encabezado);
+    printer.println(encabezadoEstado);
     printer.bold(false);
     printer.drawLine();
   }
@@ -103,6 +108,7 @@ async function construirTicket(printer, payload) {
   // Fase 6a: la factura de contingencia manda su propio título ("FACTURA DE VENTA DE TALONARIO O DE PAPEL").
   if (e) printer.println(e.titulo || 'FACTURA ELECTRÓNICA DE VENTA');
   if (a) printer.println('RECIBO DE CAJA');
+  if (dv) printer.println('DEVOLUCIÓN');
   printer.println(e?.emisor?.razonSocial || negocio?.nombre || 'Mi Tienda');
   printer.bold(false);
   const nit = e?.emisor?.nitConDv || negocio?.nit;
@@ -114,7 +120,7 @@ async function construirTicket(printer, payload) {
   printer.drawLine();
 
   printer.alignLeft();
-  const etiquetaNumero = e ? 'Factura' : a ? 'Recibo de caja' : 'Venta';
+  const etiquetaNumero = e ? 'Factura' : a ? 'Recibo de caja' : dv ? 'Devolución' : 'Venta';
   printer.println(`${etiquetaNumero}: ${venta.numero || venta.id || ''}`);
   printer.println(`Fecha: ${new Date(e?.fechaEmision || venta.fecha || Date.now()).toLocaleString('es-CO')}`);
   if (e) {
@@ -126,6 +132,11 @@ async function construirTicket(printer, payload) {
     printer.println(`Cliente: ${venta.cliente}`);
     printer.println(`Abono a: ${a.tipoComprobanteVenta} ${a.comprobanteVenta}`);
     printer.println(`Cuota ${a.numeroCuota} de ${a.totalCuotas}`);
+  }
+  if (dv) {
+    printer.println(`Cliente: ${venta.cliente}`);
+    printer.println(`Venta: ${dv.tipoComprobanteVenta} ${dv.ventaAfectada}`);
+    printer.println(`Motivo: ${dv.motivo}`);
   }
   printer.drawLine();
 
@@ -142,7 +153,7 @@ async function construirTicket(printer, payload) {
   if (venta.descuento) printer.println(`Descuento: -${formatoMoneda(venta.descuento)}`);
   if (venta.impuesto) printer.println(`Impuesto: ${formatoMoneda(venta.impuesto)}`);
   printer.bold(true);
-  printer.println(`TOTAL: ${formatoMoneda(venta.total)}`);
+  printer.println(`${dv ? 'TOTAL DEVUELTO' : 'TOTAL'}: ${formatoMoneda(venta.total)}`);
   printer.bold(false);
 
   for (const pago of venta.pagos || []) {
@@ -160,7 +171,7 @@ async function construirTicket(printer, payload) {
 
   printer.alignCenter();
   printer.drawLine();
-  printer.println(venta.mensajeCierre || '¡Gracias por su compra!');
+  if (!dv) printer.println(venta.mensajeCierre || '¡Gracias por su compra!');
   if (venta.terminos) {
     printer.println(venta.terminos);
   }
@@ -203,6 +214,14 @@ async function construirTicket(printer, payload) {
     }
     printer.println(e.proveedorTecnologico);
     if (e.fabricanteSoftware) printer.println(e.fabricanteSoftware);
+  }
+  if (dv?.notaCredito) {
+    printer.drawLine();
+    printer.println(`Nota crédito: ${dv.notaCredito.numero || 'en proceso'}`);
+    if (dv.notaCredito.cude) {
+      printer.println('CUDE:');
+      printer.println(dv.notaCredito.cude);
+    }
   }
   if (venta.leyenda) {
     printer.drawLine();

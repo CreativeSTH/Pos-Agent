@@ -176,3 +176,59 @@ test('sin conexión: imprime el QR desde texto si no viene imagen', async () => 
   assert.deepStrictEqual(qrs, ['NumFac: CONT7']);
   assert.strictEqual(imagenes.length, 0);
 });
+
+test('devolución: título, número, venta afectada, motivo, reembolsos y nota crédito con CUDE', async () => {
+  const { printer, lineas } = impresoraFalsa();
+  await construirTicket(printer, {
+    tipo: 'DEVOLUCION', negocio: { nombre: 'Ferretería' },
+    venta: {
+      numero: 'DEV-3', fecha: '2026-10-02T15:00:00Z', cliente: 'Ana Gómez',
+      items: [{ nombre: 'Taladro', cantidad: 1, subtotal: 23800 }],
+      subtotal: 20000, impuesto: 3800, total: 23800, pagos: [{ metodo: 'Efectivo', monto: 23800 }],
+      leyenda: 'Comprobante de devolución. No es una factura de venta.',
+      devolucion: {
+        ventaAfectada: 'FE17', tipoComprobanteVenta: 'Factura electrónica', motivo: 'Defectuoso',
+        notaCredito: { numero: 'NC4', cude: 'cude-1', estado: 'ACEPTADO', encabezado: null },
+      },
+    },
+  });
+  for (const esperado of [
+    'DEVOLUCIÓN', 'Devolución: DEV-3', 'Cliente: Ana Gómez', 'Venta: Factura electrónica FE17', 'Motivo: Defectuoso',
+    'Nota crédito: NC4', 'CUDE:', 'cude-1', 'Comprobante de devolución. No es una factura de venta.',
+  ]) {
+    assert.ok(lineas.includes(esperado), `falta la línea "${esperado}"`);
+  }
+  assert.ok(lineas.some((l) => l.startsWith('TOTAL DEVUELTO:')), 'falta el total devuelto');
+  assert.ok(!lineas.includes('¡Gracias por su compra!'), 'una devolución no agradece la compra');
+  assert.ok(!lineas.some((l) => l.startsWith('Venta: DEV')), 'el número no se rotula como venta');
+});
+
+test('devolución con nota crédito en validación: encabezado de estado y "en proceso"', async () => {
+  const { printer, lineas } = impresoraFalsa();
+  await construirTicket(printer, {
+    tipo: 'DEVOLUCION', negocio: { nombre: 'Ferretería' },
+    venta: {
+      numero: 'DEV-4', fecha: '2026-10-02T15:00:00Z', cliente: 'Ana Gómez', items: [], subtotal: 0, total: 0, pagos: [],
+      devolucion: {
+        ventaAfectada: 'FE18', tipoComprobanteVenta: 'Factura electrónica', motivo: 'Talla',
+        notaCredito: { numero: null, cude: null, estado: 'PENDIENTE', encabezado: 'EN VALIDACIÓN DIAN — REIMPRIMIBLE' },
+      },
+    },
+  });
+  assert.ok(lineas.includes('EN VALIDACIÓN DIAN — REIMPRIMIBLE'));
+  assert.ok(lineas.includes('Nota crédito: en proceso'));
+  assert.ok(!lineas.includes('CUDE:'));
+});
+
+test('devolución sin nota crédito (venta con recibo): sin bloque fiscal', async () => {
+  const { printer, lineas } = impresoraFalsa();
+  await construirTicket(printer, {
+    tipo: 'DEVOLUCION', negocio: { nombre: 'Ferretería' },
+    venta: {
+      numero: 'DEV-1', fecha: '2026-10-02T15:00:00Z', cliente: 'Consumidor final', items: [], subtotal: 0, total: 0, pagos: [],
+      devolucion: { ventaAfectada: 'R-15', tipoComprobanteVenta: 'Recibo', motivo: 'Cambio de opinión', notaCredito: null },
+    },
+  });
+  assert.ok(lineas.includes('Venta: Recibo R-15'));
+  assert.ok(!lineas.some((l) => l.startsWith('Nota crédito')));
+});
